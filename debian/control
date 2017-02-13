@@ -1,0 +1,16 @@
+Source: indicator-bulletin
+Section: gnome
+Priority: extra
+Maintainer: Sergiy Kolodyazhnyy <1047481448@qq.com>
+Build-Depends: debhelper (>= 9)
+Standards-Version: 3.9.8
+Homepage: https://github.com/SergKolo/indicator-bulletin
+
+Package: indicator-bulletin
+Architecture: all
+Depends: python3-gi,
+         gir1.2-appindicator3-0.1,
+         ${python:Depends},
+         ${misc:Depends}
+Description:  Indicator Bulletin
+  Clipboard manager indicator for Ubuntu 

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Version=0.1
+Name=Indicator Bulletin
+Comment=Clipboard Manager indicator
+Exec=indicator-bulletin
+Type=Application
+Icon=gtk-paste
+Terminal=false
+
