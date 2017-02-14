@@ -37,6 +37,7 @@ from gi.repository import AppIndicator3
 from gi.repository import Notify
 from gi.repository import Gtk
 from gi.repository import Gdk
+from gi.repository import GLib
 from collections import OrderedDict
 import datetime as dt
 import subprocess
@@ -190,10 +191,60 @@ class IndicatorBulletin(object):
         if written:
             subprocess.call(['zenity','--text-info','--filename',temp])
         else:
-            subprocess.call(['zenity','--error',
+            subprocess.call(['zenity','--info',
                              '--text','Search done. Nothing found'])
         if os.unlink(temp):
             if self.debug: sys.stderr('>>> find_expr: temp file unlinked'+'\n')         
+
+    def get_user_dir(self,**kwargs):
+        for index,val in GLib.UserDirectory.__enum_values__.items():
+            if val == kwargs['type']:
+              return GLib.get_user_special_dir(index)
+
+    def select_dir(self,*args):
+        doc_dir = self.get_user_dir(type=GLib.UserDirectory.DIRECTORY_DOCUMENTS)
+        cmd=['zenity','--file-selection','--directory','--filename',doc_dir]
+        return self.run_cmd(cmd)
+
+    def select_file(self,*args):
+        doc_dir = self.get_user_dir(type=GLib.UserDirectory.DIRECTORY_DOCUMENTS)
+        cmd=['zenity','--file-selection','--filename',doc_dir]
+        return self.run_cmd(cmd)
+
+    def load_file(self,*args):
+        filename = self.select_file() 
+        if not filename: return
+        if not isinstance(filename,str):
+            filename = filename.decode().strip()
+        if not os.access(filename,os.R_OK):
+            self.error_dialog('No permission to read' + filename)
+            return
+        with open(filename.decode().strip()) as fd:
+            try:
+                lines = fd.readlines()
+            except Exception as e:
+               self.error_dialog(str(e))
+        if lines:
+            self.write_to_clipboard("".join(lines))
+
+    def dump_to_file(self,*args):
+        destination = self.select_dir()
+        if not destination: return
+        destination = destination.decode().strip()
+        if not os.access(destination,os.W_OK):
+            self.error_dialog('No write permissions for '+destination)
+            return
+        filename = 'clipboard_' +dt.datetime.now().strftime('%s')+'.txt'
+        text = self.clip.wait_for_text()
+        if not text: 
+            self.error_dialog('No text received')
+            return
+        with open(os.path.join(destination,filename),'w') as fd:
+            fd.write(text +'\n')
+        notif_text='Clipboard contents written to ' + filename
+        self.send_notif(self.notif,'Indicator Bulletin',notif_text) 
+
+ 
 
     def clear_all(self,*args):
         """ Deletes all previously stored text items"""
@@ -218,6 +269,9 @@ class IndicatorBulletin(object):
                       'tool':tool  }
              json.dump(data,f,indent=4)
 
+    def error_dialog(self,*args):
+        subprocess.call(['zenity','--error','--text',args[-1]])
+
     def add_submenu(self,top_menu,label,**kwargs):
         menuitem = Gtk.MenuItem(label)
         if kwargs and 'icon' in kwargs.keys():
@@ -233,6 +287,7 @@ class IndicatorBulletin(object):
         top_menu.append(menuitem)
         menuitem.show()
         return submenu
+
 
     # TODO: rewrite this with kwargs
     def add_menu_item(self, menu_obj, item_type, image, label, action, args):
@@ -326,6 +381,20 @@ class IndicatorBulletin(object):
 
         # TODO:
         # implement search by timepstamp
+
+#---
+
+        load_menu = self.add_submenu(self.app_menu,'File operations',icon='gtk-open') 
+        item = [load_menu,Gtk.MenuItem,
+                None,'From file',
+                self.load_file,[None]]
+        self.add_menu_item(*item)
+
+        item = [load_menu,Gtk.MenuItem,
+                None,'Dump to file',
+                self.dump_to_file,[None]]
+        self.add_menu_item(*item)
+#---
 
         item = [self.app_menu,Gtk.ImageMenuItem,
                 'user-trash','Clear all',

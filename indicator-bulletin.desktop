@@ -6,4 +6,3 @@ Exec=indicator-bulletin
 Type=Application
 Icon=gtk-paste
 Terminal=false
-
