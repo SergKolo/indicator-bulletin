@@ -169,6 +169,50 @@ class IndicatorBulletin(object):
                 sys.stderr.write('>>> write_history:' + str(e) + '\n')
         self.make_menu()
 
+    def display_date_range(self,*args):
+        header='Enter time range\n'
+        date_fmt = 'YYYY/MM/DD/HH:MM'
+        header = header + 'Format:'+date_fmt
+        header = header + '\n(24 clock)'
+        cmd =['zenity', '--text', 
+              header,'--forms', 
+              '--add-entry="Start date"', 
+              '--add-entry="End date"']
+        dates = self.run_cmd(cmd)
+        if not dates: return
+        date_range = dates.decode().strip().split('|')
+        if not len(date_range) == 2:
+            self.error_dialog('Input error')
+            return
+        first = self.convert_to_seconds(date_range[0])
+        last = self.convert_to_seconds(date_range[1])
+        if not first or not last: return
+        data = self.read_history()
+        temp = tempfile.mkstemp()[1] 
+        written = False
+        try:
+            with open(temp,'w') as fd:
+                for timestamp,entry in data.items():
+                    ts = int(timestamp) 
+                    if ts > last: 
+                       print('Searching:',str(ts),str(first))
+                       continue
+                    if ts < first:
+                       print('Break',str(ts),str(last))
+                       break
+                    print('found')
+                    entry_date = self.timestamp_to_date(timestamp)
+                    fd.write(entry_date +': ' + entry + '\n')
+                    written = True
+            if written:
+                subprocess.call(['zenity','--text-info','--filename',temp])
+            else:
+                subprocess.call(['zenity','--info','--text','Search done,nothing found'])
+        except Exception as e:
+            self.error_dialog(str(e))
+        finally:  
+            os.unlink(temp)
+            
     def find_expression(self,*args):
         """ Searches stored text using python regex"""
         data = self.read_history()
@@ -334,8 +378,6 @@ class IndicatorBulletin(object):
         header.set_sensitive(False)
 
         history = self.read_history()
-        if self.debug:
-            sys.stderr.write('>>> make_menu, history:' + str(history) + '\n')
         if history:
             counter = 0
             for timestamp,text in history.items():
@@ -377,6 +419,11 @@ class IndicatorBulletin(object):
         item = [search_menu,Gtk.MenuItem,
                 None,'Find by expression',
                 self.find_expression,[None]]
+        self.add_menu_item(*item)
+
+        item = [search_menu,Gtk.MenuItem,
+                None,'Show date range',
+                self.display_date_range,[None]]
         self.add_menu_item(*item)
 
         # TODO:
@@ -432,11 +479,21 @@ class IndicatorBulletin(object):
         """ closes indicator """
         Gtk.main_quit()
 
+    # Date and time functions
     def timestamp_to_date(self,*args):
         timestamp = int(args[-1])
         dtobj = dt.datetime.fromtimestamp(timestamp)
-        return dt.datetime.now().strftime('%Y %b %d %H:%M:%S')
-        
+        return dtobj.strftime('%Y %b %d %H:%M:%S')
+
+    def convert_to_seconds(self,*args):
+        date_fmt = '%Y/%m/%d/%H:%M' 
+        try:
+            dtobj = dt.datetime.strptime(args[-1],date_fmt)
+        except ValueError:
+            self.error_dialog('Improper date format:' + args[-1])
+            return
+        return int(dtobj.strftime('%s'))
+ 
 
     def run_cmd(self, cmdlist):
         """ Reusable function for running external commands """
