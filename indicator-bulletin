@@ -156,6 +156,7 @@ class IndicatorBulletin(object):
         if not data: return
         match = None
         for timestamp,record in data.items():
+            if not record: continue
             if record == text:
                 match = timestamp
         if match:
@@ -201,6 +202,7 @@ class IndicatorBulletin(object):
                        break
                     print('found')
                     entry_date = self.timestamp_to_date(timestamp)
+                    if not entry: continue
                     fd.write(entry_date +': ' + entry + '\n')
                     written = True
             if written:
@@ -226,6 +228,7 @@ class IndicatorBulletin(object):
         written = False
         with open(temp,'w') as fd:
             for timestamp,text in sorted(data.items()):
+                if not text: continue
                 if re.search(expr,text):
                    if self.debug: sys.stderr.write('>>> find_expr:'+ timestamp +','  + text + '\n')
                    date = self.timestamp_to_date(timestamp)
@@ -456,9 +459,12 @@ class IndicatorBulletin(object):
         if history:
             counter = 0
             for timestamp,text in history.items():
+                if not text: continue
+                print(timestamp,str(text))
                 if counter > self.menu_length: break
                 label = text
-                if len(text) > self.text_width: label  = text[:self.text_width] + '...'
+                if len(text) > self.text_width:
+                   label  = text[:self.text_width] + '...'
                 text_entry = self.add_submenu(self.app_menu,label)
                 item = [text_entry,Gtk.ImageMenuItem,'insert-text',
                         'Insert',self.write_to_clipboard,[text]]
