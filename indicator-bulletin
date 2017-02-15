@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-#
 # Author: Serg Kolo <1047481448@qq.com>
 # Date: February 12, 2017
 # Purpose: Clipboard manager indicator for Ubuntu
@@ -288,7 +287,80 @@ class IndicatorBulletin(object):
         notif_text='Clipboard contents written to ' + filename
         self.send_notif(self.notif,'Indicator Bulletin',notif_text) 
 
- 
+    # Editing
+    def change_case(self,*args):
+        """ Converts clipboard content to lower or upper case """
+        text = self.clip.wait_for_text()
+        if not text: self.error_dialog('Null text received')
+        if case == 'upper':
+            self.write_to_clipboard(text.upper()) 
+        else:
+            self.write_to_clipboard(text.lower()) 
+
+    def trim_dialog(self,*args):
+        """ Dialog for choosing type and how many items to trim"""
+        cmd=['zenity','--forms','--text',
+             'Trim ' + args[-1],'--add-combo','Method',
+             '--combo-values','By words|By chars','--add-entry',
+             'How many(int)']
+        user_input = self.run_cmd(cmd)
+        if not user_input: return 
+        choices = user_input.decode().strip().split('|')
+        if not choices[0]: 
+           self.error_dialog('Trim type not chosen')
+           return
+        if not choices[1].isdigit(): 
+           self.error_dialog('Not a number:' + choices[1])
+           return
+        return tuple(choices)
+
+    def trim_tail(self,*args):
+        """ Strip elements from end"""
+        pick = self.trim_dialog('tail')
+        cutoff = -1*int(pick[1])
+        text = self.clip.wait_for_text() 
+        new_text = str()
+
+        if pick[0] == 'By words':
+            new_text = " ".join(text.split()[:cutoff])
+        else:
+            print('chars')
+            new_text = text[:cutoff]
+
+        if new_text:
+            self.write_to_clipboard(new_text)
+            
+    def trim_head(self,*args):
+        """ Strip elements from beginning"""
+        pick = self.trim_dialog('head')
+        cutoff = int(pick[1])
+        text = self.clip.wait_for_text() 
+        new_text = str()
+
+        if pick[0] == 'By words':
+            new_text = " ".join(text.split()[cutoff:])
+        else:
+            print('chars')
+            new_text = text[cutoff:]
+
+        if new_text:
+            self.write_to_clipboard(new_text)
+
+    def replace_expr(self,*args):
+        """ regex replacement """
+        text = self.clip.wait_for_text()
+        if not text: 
+           self.error_dialog('Empty clipboard - nothing to replace')
+           return
+        cmd = ['zenity','--text',
+               'Regex expression','--forms',
+               '--add-entry=PATTERN', '--add-entry=REPLACEMENT',
+               '--separator','\n']
+        user_input = self.run_cmd(cmd)
+        if not user_input: return
+        regex = tuple(user_input.decode().strip().split('\n'))
+        new_text = re.sub(regex[0],regex[1],text)
+        self.write_to_clipboard(new_text)
 
     def clear_all(self,*args):
         """ Deletes all previously stored text items"""
@@ -315,6 +387,9 @@ class IndicatorBulletin(object):
 
     def error_dialog(self,*args):
         subprocess.call(['zenity','--error','--text',args[-1]])
+
+    def info_dialog(self,*args):
+        subprocess.call(['zenity','--info','--text',args[-1]])
 
     def add_submenu(self,top_menu,label,**kwargs):
         menuitem = Gtk.MenuItem(label)
@@ -441,6 +516,32 @@ class IndicatorBulletin(object):
                 None,'Dump to file',
                 self.dump_to_file,[None]]
         self.add_menu_item(*item)
+#--- 
+        edit_menu = self.add_submenu(self.app_menu,'Edit',icon='text-editor') 
+        item = [edit_menu,Gtk.MenuItem,
+                None,'To uppercase',
+                self.change_case,['upper']]
+        self.add_menu_item(*item)
+
+        item = [edit_menu,Gtk.MenuItem,
+                None,'To lowercase',
+                self.change_case,['lower']]
+        self.add_menu_item(*item)
+
+        item = [edit_menu,Gtk.MenuItem,
+                None,'Trim from end',
+                self.trim_tail,[None]]
+        self.add_menu_item(*item)
+
+        item = [edit_menu,Gtk.MenuItem,
+                None,'Trim from beginning',
+                self.trim_head,[None]]
+        self.add_menu_item(*item)
+
+        item = [edit_menu,Gtk.MenuItem,
+                None,'Replace expression',
+                self.replace_expr,[None]]
+        self.add_menu_item(*item)
 #---
 
         item = [self.app_menu,Gtk.ImageMenuItem,
@@ -493,7 +594,6 @@ class IndicatorBulletin(object):
             self.error_dialog('Improper date format:' + args[-1])
             return
         return int(dtobj.strftime('%s'))
- 
 
     def run_cmd(self, cmdlist):
         """ Reusable function for running external commands """
