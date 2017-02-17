@@ -40,9 +40,11 @@ from gi.repository import GLib
 from collections import OrderedDict
 import datetime as dt
 import subprocess
+import threading
 import tempfile
 import signal
 import json
+import time
 import sys
 import os
 import re
@@ -86,7 +88,19 @@ class IndicatorBulletin(object):
         self.notif = Notify.Notification.new("Notify")
         
         self.make_menu()
+        thr = threading.Thread(target=self.check_history_file)
+        thr.daemon = True
+        thr.start()
         self.app.set_status(AppIndicator3.IndicatorStatus.ACTIVE)
+   
+    def check_history_file(self,*args):
+        """ Checks history file for size, notifies if it's over
+            1 Gibibyte in size """
+        warning = self.history_file + ' is over 1 Gb in size'
+        while True:
+            if os.stat(self.history_file).st_size > 1024**3:
+                self.info_dialog(warning)
+            time.sleep(3600)
 
     def read_history(self,*args):
         """ reads history file contents """
@@ -119,7 +133,6 @@ class IndicatorBulletin(object):
                 pass 
             else:
                 sys.stderr.write('>>> write_history:'+ str(e) +'\n') 
-                
 
         # write current clipboard contents
         with open(self.history_file,'w') as fd:
@@ -149,8 +162,27 @@ class IndicatorBulletin(object):
         text = self.clip.wait_for_text()
         if not text: text = ""
         self.write_to_clipboard(self,args[-1] +" "+text)
-    
+
+    def open_in_editor(self,*args):
+        """ Creates temp file with clipboard contents
+            for editing and inserts them back"""   
+        ### TODO: figure out default editor detection
+        temp = tempfile.mkstemp()[1] 
+        with open(temp,'w') as fd:
+            fd.write(args[-1])
+        self.run_cmd(['xdg-open',temp])
+        self.load_file(filename=temp)
+        os.unlink(temp)
+        if os.path.exists(temp + '~'):
+            os.unlink(temp+'~')
+        # TODO: because gedit for  creates the
+        # filenames with ~ at the end for backup, the removal of
+        # temp filename is not enough. But other editors such as vim
+        # do the same. I cannot possibly implement removal of temp
+        # files for all editors, so . . .what do I do here?
+
     def remove_from_history(self,*args):
+        """ deletes entry from history file"""
         text = args[-1]
         data = self.read_history()
         if not data: return
@@ -170,14 +202,21 @@ class IndicatorBulletin(object):
         self.make_menu()
 
     def display_date_range(self,*args):
+        """ Extracts range of items based on timestamps
+            from history files and displays it in zenity's
+            textview dialog"""
+        # no point in proceeding if history file is clear/empty/DNE
+        data = self.read_history()
+        print(data)
+        if not data: return
         header='Enter time range\n'
         date_fmt = 'YYYY/MM/DD/HH:MM'
         header = header + 'Format:'+date_fmt
         header = header + '\n(24 clock)'
-        cmd =['zenity', '--text', 
-              header,'--forms', 
-              '--add-entry="Start date"', 
-              '--add-entry="End date"']
+        cmd = ['zenity', '--text', 
+               header,'--forms', 
+               '--add-entry="Start date"', 
+               '--add-entry="End date"']
         dates = self.run_cmd(cmd)
         if not dates: return
         date_range = dates.decode().strip().split('|')
@@ -186,8 +225,12 @@ class IndicatorBulletin(object):
             return
         first = self.convert_to_seconds(date_range[0])
         last = self.convert_to_seconds(date_range[1])
+        if last < first:
+           info = 'End date should be older than start date.Try again'
+           self.info_dialog(info)
+           return self.display_date_range()
+
         if not first or not last: return
-        data = self.read_history()
         temp = tempfile.mkstemp()[1] 
         written = False
         try:
@@ -195,22 +238,20 @@ class IndicatorBulletin(object):
                 for timestamp,entry in data.items():
                     ts = int(timestamp) 
                     if ts > last: 
-                       print('Searching:',str(ts),str(first))
                        continue
                     if ts < first:
-                       print('Break',str(ts),str(last))
                        break
-                    print('found')
                     entry_date = self.timestamp_to_date(timestamp)
                     if not entry: continue
                     fd.write(entry_date +': ' + entry + '\n')
                     written = True
             if written:
-                subprocess.call(['zenity','--text-info','--filename',temp])
+                cmd=['zenity','--text-info','--filename',temp]
+                self.run_cmd(cmd)
             else:
-                subprocess.call(['zenity','--info','--text','Search done,nothing found'])
-        except Exception as e:
-            self.error_dialog(str(e))
+                self.info_dialog('Search done,nothing found')
+        #except Exception as e:
+            #self.error_dialog(str(e))
         finally:  
             os.unlink(temp)
             
@@ -218,8 +259,8 @@ class IndicatorBulletin(object):
         """ Searches stored text using python regex"""
         data = self.read_history()
         if not data: return
-        
-        expr = self.run_cmd(['zenity','--entry','--text','Enter expression to find:'])
+        cmd = ['zenity','--entry','--text','Enter expression to find:'] 
+        expr = self.run_cmd(cmd)
         if not expr: return
         expr = expr.decode().strip()
         temp = tempfile.mkstemp()[1]
@@ -257,23 +298,32 @@ class IndicatorBulletin(object):
         cmd=['zenity','--file-selection','--filename',doc_dir]
         return self.run_cmd(cmd)
 
-    def load_file(self,*args):
-        filename = self.select_file() 
-        if not filename: return
-        if not isinstance(filename,str):
+    def load_file(self,*args,**kwargs):
+        if 'filename' not in kwargs.keys():
+            filename = self.select_file() 
+            if not filename: return
+        else:
+            filename = kwargs['filename']
+
+        if isinstance(filename,bytes):
             filename = filename.decode().strip()
+
         if not os.access(filename,os.R_OK):
+            print(filename)
             self.error_dialog('No permission to read' + filename)
             return
-        with open(filename.decode().strip()) as fd:
+
+        with open(filename) as fd:
             try:
                 lines = fd.readlines()
+                lines[-1] = lines[-1].strip()
             except Exception as e:
-               self.error_dialog(str(e))
+                self.error_dialog(str(e))
         if lines:
-            self.write_to_clipboard("".join(lines))
+            return self.write_to_clipboard("".join(lines))
 
     def dump_to_file(self,*args):
+        """ Outputs clipboard contents to a timestamped file"""
         destination = self.select_dir()
         if not destination: return
         destination = destination.decode().strip()
@@ -295,9 +345,10 @@ class IndicatorBulletin(object):
         """ Converts clipboard content to lower or upper case """
         text = self.clip.wait_for_text()
         if not text: self.error_dialog('Null text received')
+        case = args[-1]
         if case == 'upper':
             self.write_to_clipboard(text.upper()) 
-        else:
+        if case == 'lower':
             self.write_to_clipboard(text.lower()) 
 
     def trim_dialog(self,*args):
@@ -319,22 +370,36 @@ class IndicatorBulletin(object):
 
     def trim_tail(self,*args):
         """ Strip elements from end"""
+        text = self.clip.wait_for_text() 
+        if not text:
+            self.info_dialog('Empty cliboard. Nothing to change')
+            return
+        new_text = str()
+
         pick = self.trim_dialog('tail')
         cutoff = -1*int(pick[1])
-        text = self.clip.wait_for_text() 
-        new_text = str()
 
         if pick[0] == 'By words':
             new_text = " ".join(text.split()[:cutoff])
         else:
-            print('chars')
             new_text = text[:cutoff]
 
-        if new_text:
-            self.write_to_clipboard(new_text)
+        if not new_text:
+           info = 'Empty text received (Too much removed?).'
+           info = info + 'Clipboard unchanged'
+           self.info_dialog(info)
+           return
+        self.write_to_clipboard(new_text)
+        
             
     def trim_head(self,*args):
         """ Strip elements from beginning"""
+        text = self.clip.wait_for_text() 
+        if not text:
+            self.info_dialog('Empty cliboard. Nothing to change')
+            return
+        new_text = str()
+
         pick = self.trim_dialog('head')
         cutoff = int(pick[1])
         text = self.clip.wait_for_text() 
@@ -343,11 +408,14 @@ class IndicatorBulletin(object):
         if pick[0] == 'By words':
             new_text = " ".join(text.split()[cutoff:])
         else:
-            print('chars')
             new_text = text[cutoff:]
 
-        if new_text:
-            self.write_to_clipboard(new_text)
+        if not new_text:
+           info = 'Empty text received (Too much removed?).'
+           info = info + 'Clipboard unchanged'
+           self.info_dialog(info)
+           return
+        self.write_to_clipboard(new_text)
 
     def replace_expr(self,*args):
         """ regex replacement """
@@ -388,6 +456,7 @@ class IndicatorBulletin(object):
                       'tool':tool  }
              json.dump(data,f,indent=4)
 
+
     def error_dialog(self,*args):
         subprocess.call(['zenity','--error','--text',args[-1]])
 
@@ -395,6 +464,7 @@ class IndicatorBulletin(object):
         subprocess.call(['zenity','--info','--text',args[-1]])
 
     def add_submenu(self,top_menu,label,**kwargs):
+        """ utility function for adding submenus"""
         menuitem = Gtk.MenuItem(label)
         if kwargs and 'icon' in kwargs.keys():
             menuitem = Gtk.ImageMenuItem.new_with_label(label)
@@ -460,7 +530,6 @@ class IndicatorBulletin(object):
             counter = 0
             for timestamp,text in history.items():
                 if not text: continue
-                print(timestamp,str(text))
                 if counter > self.menu_length: break
                 label = text
                 if len(text) > self.text_width:
@@ -476,6 +545,10 @@ class IndicatorBulletin(object):
 
                 item = [text_entry,Gtk.ImageMenuItem,'gtk-add',
                         'Prepend',self.prepend_to_clipboard,[text]]
+                self.add_menu_item(*item)
+
+                item = [text_entry,Gtk.ImageMenuItem,'text-editor',
+                        'Open in editor',self.open_in_editor,[text]]
                 self.add_menu_item(*item)
 
                 item = [text_entry,Gtk.ImageMenuItem,'edit-clear',
