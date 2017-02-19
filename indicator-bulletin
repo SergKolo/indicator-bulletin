@@ -38,6 +38,7 @@ from gi.repository import Gtk
 from gi.repository import Gdk
 from gi.repository import GLib
 from collections import OrderedDict
+from base64 import b64encode,b64decode
 import datetime as dt
 import subprocess
 import threading
@@ -433,6 +434,18 @@ class IndicatorBulletin(object):
         new_text = re.sub(regex[0],regex[1],text)
         self.write_to_clipboard(new_text)
 
+    def base64_operation(self,*args):
+        text = self.clip.wait_for_text()
+        new_text = ""
+        if not text:
+           self.error_dialog('Empty clipboard - cannot convert')
+        if args[-1] == 'encode':
+           new_text = b64encode(text.encode())
+        if args[-1] == 'decode':
+           new_text = b64decode(text.encode())
+        self.write_to_clipboard(new_text.decode())
+# ---
+
     def clear_all(self,*args):
         """ Deletes all previously stored text items"""
         with open(self.history_file,'w') as fd:
@@ -620,6 +633,16 @@ class IndicatorBulletin(object):
         item = [edit_menu,Gtk.MenuItem,
                 None,'Replace expression',
                 self.replace_expr,[None]]
+        self.add_menu_item(*item)
+
+        item = [edit_menu,Gtk.MenuItem,
+                None,'Base64 encode',
+                self.base64_operation,['encode']]
+        self.add_menu_item(*item)
+
+        item = [edit_menu,Gtk.MenuItem,
+                None,'Base64 decode',
+                self.base64_operation,['decode']]
         self.add_menu_item(*item)
 #---
 
