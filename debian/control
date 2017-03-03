@@ -8,7 +8,8 @@ Homepage: https://github.com/SergKolo/indicator-bulletin
 
 Package: indicator-bulletin
 Architecture: all
-Depends: python3-gi,
+Depends: zenity,
+         python3-gi,
          gir1.2-appindicator3-0.1,
          ${python:Depends},
          ${misc:Depends}

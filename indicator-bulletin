@@ -74,12 +74,12 @@ class IndicatorBulletin(object):
 
         }
 
-        if os.path.exists(self.config_files['history_file']):
-            try:
-                self.read_history()
-            except Exception as e:
-                sys.stderr(">>> reading history:" + str(e) + "\n")
-                pass
+#        if os.path.exists(self.config_files['config_file']):
+#            try:
+#                self.read_history()
+#            except Exception as e:
+#                sys.stderr(">>> reading history:" + str(e) + "\n")
+#                pass
         # Indicator UI settings defaults
         self.app_configs = self.read_config()
         # Set up GUI utilities
@@ -178,7 +178,7 @@ class IndicatorBulletin(object):
         os.unlink(temp)
         if os.path.exists(temp + '~'):
             os.unlink(temp + '~')
-        # TODO: because gedit for  creates the
+        # TODO: because gedit creates the
         # filenames with ~ at the end for backup, the removal of
         # temp filename is not enough. But other editors such as vim
         # do the same. I cannot possibly implement removal of temp
@@ -503,9 +503,46 @@ class IndicatorBulletin(object):
 
     def write_config(self, config_map):
         """ Writes user configuration to file"""
-        with open(self.config_file, 'w') as f:
+        with open(self.config_files['config_file'], 'w') as f:
             json.dump(data, f, indent=4)
 
+    def read_pinned(self,*args):
+        try:
+            with open(self.config_files['pinned_file']) as f:
+                data = json.load(f)
+                return data
+        except FileNotFoundError:
+            self.touch_file(self.config_files['pinned_file'])
+        except json.decoder.JSONDecodeError:
+            return 
+
+    def write_pinned(self,*args):
+        data = self.read_pinned()
+        if not os.path.exists(self.config_files['pinned_file']):
+            return
+        if not data: 
+            data = {"pinned": [args[-1]]}
+        else:
+            data["pinned"].append(args[-1])
+
+        # handle exceptions
+        with open(self.config_files['pinned_file'],'w') as fd:
+            json.dump(data,fd,indent=4)
+        return self.make_menu()
+
+    def remove_pinned(self,*args):
+        data =  self.read_pinned()
+        for x,i in enumerate(data["pinned"]):
+            if i == args[-1]:
+                print(x,i)
+                data["pinned"].pop(x)
+                break
+        #handle exceptions, remember to call make_menu() outside 
+        with open(self.config_files['pinned_file'],'w') as fd:
+            json.dump(data,fd,indent=4)
+        return self.make_menu()
+             
+       
     def error_dialog(self, *args):
         subprocess.call(['zenity', '--error', '--text', args[-1]])
 
@@ -560,6 +597,34 @@ class IndicatorBulletin(object):
         menu_item.show()
         return menu_item
 
+    def add_entry_submenus(self,entry_menu,text,**kwargs):
+
+        item = [entry_menu, Gtk.ImageMenuItem, 'insert-text',
+                'Insert', self.write_to_clipboard, [text]]
+        self.add_menu_item(*item)
+
+        item = [entry_menu, Gtk.ImageMenuItem, 'gtk-add',
+                'Append', self.append_to_clipboard, [text]]
+        self.add_menu_item(*item)
+
+        item = [entry_menu, Gtk.ImageMenuItem, 'gtk-add',
+                'Prepend', self.prepend_to_clipboard, [text]]
+        self.add_menu_item(*item)
+
+        item = [entry_menu, Gtk.ImageMenuItem, 'text-editor',
+                'Open in editor', self.open_in_editor, [text]]
+        self.add_menu_item(*item)
+
+        if kwargs['history']:
+            item = [entry_menu, Gtk.ImageMenuItem, 'edit-clear',
+                    'Remove', self.remove_from_history, [text]]
+            self.add_menu_item(*item)
+
+            item = [entry_menu,Gtk.ImageMenuItem,'starred',
+                    'Add to pinned', self.write_pinned,[text]]
+            self.add_menu_item(*item)
+                    
+
     def make_menu(self, *args):
         """ generates entries in the indicator"""
         if hasattr(self, 'app_menu'):
@@ -585,25 +650,7 @@ class IndicatorBulletin(object):
                 if len(text) > self.app_configs['text_width']:
                     label = text[:self.app_configs['text_width']] + '...'
                 text_entry = self.add_submenu(self.app_menu, label)
-                item = [text_entry, Gtk.ImageMenuItem, 'insert-text',
-                        'Insert', self.write_to_clipboard, [text]]
-                self.add_menu_item(*item)
-
-                item = [text_entry, Gtk.ImageMenuItem, 'gtk-add',
-                        'Append', self.append_to_clipboard, [text]]
-                self.add_menu_item(*item)
-
-                item = [text_entry, Gtk.ImageMenuItem, 'gtk-add',
-                        'Prepend', self.prepend_to_clipboard, [text]]
-                self.add_menu_item(*item)
-
-                item = [text_entry, Gtk.ImageMenuItem, 'text-editor',
-                        'Open in editor', self.open_in_editor, [text]]
-                self.add_menu_item(*item)
-
-                item = [text_entry, Gtk.ImageMenuItem, 'edit-clear',
-                        'Remove', self.remove_from_history, [text]]
-                self.add_menu_item(*item)
+                self.add_entry_submenus(text_entry,text,history=True)
                 counter += 1
         else:
 
@@ -612,12 +659,27 @@ class IndicatorBulletin(object):
                     None, [None]]
             self.add_menu_item(*item)
 
+                    
         item = [self.app_menu, Gtk.MenuItem,
                 None, 'OTHER OPTIONS',
                 None, [None]]
         header = self.add_menu_item(*item)
         header.set_sensitive(False)
-
+        # Pinned entries
+        pinned_menu = self.add_submenu(self.app_menu,"Pinned",icon='starred')
+        pinned_items = self.read_pinned()
+        if pinned_items:
+            for text in pinned_items["pinned"]:
+                label = text
+                if len(text) > self.app_configs['text_width']:
+                    label = text[:self.app_configs['text_width']] + '...'
+                text_entry = self.add_submenu(pinned_menu, label)
+                self.add_entry_submenus(text_entry,text,history=False)
+                item = [text_entry,Gtk.ImageMenuItem,
+                        'gtk-remove','Remove',
+                        self.remove_pinned,[text]
+                ]
+                self.add_menu_item(*item)
         # Search options
         search_menu = self.add_submenu(
             self.app_menu, 'Find text', icon='gtk-find')
