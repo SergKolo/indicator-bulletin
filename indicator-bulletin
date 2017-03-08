@@ -473,6 +473,15 @@ class IndicatorBulletin(object):
         if isinstance(new_text, bytes):
             new_text = new_text.decode()
         self.write_to_clipboard(new_text)
+ 
+    def strip_whitespace(self,*args):
+        text = self.clip.wait_for_text()
+        if not text:
+           return
+        if args[-1] == 0:
+            self.write_to_clipboard(text.lstrip())
+        if args[-1] == 1:
+            self.write_to_clipboard(text.rstrip())
 # ---
 
     def clear_all(self, *args):
@@ -741,6 +750,16 @@ class IndicatorBulletin(object):
         item = [edit_menu, Gtk.MenuItem,
                 None, 'Base64 decode',
                 self.base64_operation, ['decode']]
+        self.add_menu_item(*item)
+
+        item = [edit_menu, Gtk.MenuItem,
+                None, 'Strip leading whitespace/newline',
+                self.strip_whitespace, [0]]
+        self.add_menu_item(*item)
+
+        item = [edit_menu, Gtk.MenuItem,
+                None, 'Strip trailing whitespace/newline',
+                self.strip_whitespace, [1]]
         self.add_menu_item(*item)
         # ---
 
