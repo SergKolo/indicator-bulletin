@@ -98,7 +98,7 @@ class IndicatorBulletin(object):
             1 Gibibyte in size """
         warning = self.config_files['history_file'] + ' is over 1 Gb in size'
         while True:
-            if os.stat(self.config_files['history_file']).st_size > 1024**3:
+            if os.path.exists(self.config_files['history_file']) and os.stat(self.config_files['history_file']).st_size > 1024**3:
                 self.info_dialog(warning)
             time.sleep(3600)
 
@@ -513,7 +513,7 @@ class IndicatorBulletin(object):
     def write_config(self, config_map):
         """ Writes user configuration to file"""
         with open(self.config_files['config_file'], 'w') as f:
-            json.dump(data, f, indent=4)
+            json.dump(config_map, f, indent=4)
 
     def read_pinned(self,*args):
         try:
